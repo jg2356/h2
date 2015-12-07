@@ -1,7 +1,9 @@
 (ns h2.core
+  (:require [h2.net.tcp :as tcp])
   (:gen-class))
 
 (defn -main
-  "I don't do a whole lot ... yet."
   [& args]
-  (println "Hello, World!"))
+  (let [s (tcp/server :port 1337)
+        h (tcp/start-server s)]
+    @h))
