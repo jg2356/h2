@@ -1,4 +1,4 @@
-(ns h2.hpack
+(ns h2.protocol.hpack
   (:require [clojure.java.io :refer [output-stream
                                      input-stream]])
   (:import [java.nio.charset Charset]
@@ -15,7 +15,7 @@
   [b]
   (new String b 0 (count b) charset))
 
-(defn make-encoder
+(defn get-encoder
   ([] (make-encoder 4096))
   ([max-table-size]
    (let [enc (Encoder. max-table-size)]
@@ -24,7 +24,7 @@
          (. enc encodeHeader os (b hkey) (b hval) sensitive)
          os)))))
 
-(defn make-decoder
+(defn get-decoder
   ([] (make-decoder 4096 4096))
   ([max-header-size max-table-size]
    (let [dec (Decoder. max-header-size max-table-size)]
