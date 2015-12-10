@@ -103,11 +103,12 @@
         padlen (byte (dec padding))
         flags (conj flags :padded)
         payload (concat [padlen] payload (byte-array padlen))]
-    (merge
-      frame
-      {:length length
-       :flags flags
-       :payload (byte-array payload)})))
+    (-> frame
+        (dissoc :padding)
+        (merge
+          {:length length
+           :flags flags
+           :payload (byte-array payload)}))))
 
 (defn decode-padding
   "Decode padding when applicable"
@@ -128,6 +129,7 @@
        :payload (byte-array payload)})))
 
 (defn get-buffer
+  "Gets a buffer from a frame"
   [{:keys [type flags stream padding] :as frame
     :or {flags #{} stream 0}}
    & [{:keys [settings] :as connection
@@ -142,6 +144,7 @@
     (compose tpl [frm])))
 
 (defn get-frame
+  "Gets a frame from a buffer"
   [buffer
    & [{:keys [settings] :as connection
        :or {settings spec/setting-defaults}}]]
@@ -161,6 +164,4 @@
                           :payload payload})]
   (-> (get-frame buffer)
       (get-buffer)
-      (get-frame)
-      :payload
-      s))
+      (get-frame)))
