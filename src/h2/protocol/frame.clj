@@ -8,6 +8,46 @@
             [clojurewerkz.buffy.types.protocols :refer :all]
             [clojurewerkz.buffy.frames :refer :all]))
 
+(def ebit 0x80000000)
+
+(def rbit 0x7fffffff)
+
+(defn- validate-priority
+  "Validates frame priority"
+  [{:keys [type weight stream-dependency exclusive]
+    :as frame}
+   & _ ]
+  (when-not (and weight stream-dependency exclusive)
+    (raise compression-error "Must specify all of priority parameters for: "type))
+  frame)
+
+(defn- encode-priority
+  "Encode frame priority"
+  [{:keys [length payload flags weight stream-dependency exclusive]
+    :as frame}
+   settings]
+  {:pre [frame settings]}
+  (let [flags (cond-> flags (not= type :priority) (conj :priority))
+        exval (if exclusive ebit 0)
+        sdval (bit-and stream-dependency rbit)
+        prval (bit-or exval sdval)
+        weval (dec weight)
+        prbuf (-> (spec :priority (int32-type)
+                        :weight (byte-type))
+                  (compose-buffer)
+                  (set-field :priority prval)
+                  (set-field :weight weval)
+                  (buffer))
+        pbytes (read (bytes-type 5) prbuf 0)
+        payload (concat pbytes payload)
+        length (+ length 5)]
+    (-> frame
+        (validate-priority settings)
+        (merge
+         {:length length
+          :flags flags
+          :payload (byte-array payload)}))))
+
 (defn- validate-padding
   "Validates frame padding"
   [{:keys [type length padding]
@@ -21,7 +61,7 @@
   frame)
 
 (defn- encode-padding
-  "Encode padding when applicable"
+  "Encode frame padding"
   [{:keys [payload type length padding flags]
     :as frame}
    settings]
@@ -39,7 +79,7 @@
           :payload (byte-array payload)}))))
 
 (defn- decode-padding
-  "Decode padding when applicable"
+  "Decode frame padding"
   [{:keys [payload type length flags]
     :as frame}
    settings]
@@ -59,6 +99,7 @@
   "Validate the common frame header"
   [{:keys [type length stream increment] :as frame}
    & [{:keys [settings-max-frame-size]}]]
+  {:pre [type length stream increment]}
   (let [code (spec/frame-code type)
         flags (spec/frame-flag-index type)]
     (when-not code
@@ -147,7 +188,9 @@
 
 (defmethod encode-frame :headers
   [{:keys [payload type flags weight stream-dependency exclusive]
-    :as frame}])
+    :as frame}
+   & [settings]]
+  frame)
 
 (defmethod encode-frame :default
   [{:keys [type]} & _]
@@ -177,12 +220,10 @@
       (decode-frame settings)
       (validate-header settings)))
 
-
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :data
+      frame {:type :headers
              :stream 2
              :padding 66
              :payload payload}
       buffer (get-buffer frame)]
-  (-> buffer
-      get-frame))
+  (-> buffer))
