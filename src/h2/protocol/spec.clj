@@ -55,11 +55,10 @@
 
 (defn setting-init
   "Get the setting initial value"
+  ([]
+   setting-type-to-initial-value-map)
   ([type]
    (get setting-type-to-initial-value-map type)))
-
-(def setting-defaults
-  setting-type-to-initial-value-map)
 
 (defn error-code
   "Get the error code"
