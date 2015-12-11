@@ -20,7 +20,7 @@
            (-> frame :length)     (count text)
            (-> frame :payload s)  text))))
 
-(deftest data-frame-test
+(deftest headers-frame-test
   (testing "encode and decode headers frame"
     (let [text "This is a test to encode and decode a headers frame"
           buffer (get-buffer {:type :headers
@@ -42,3 +42,20 @@
            (-> frame :exclusive)          true
            (-> frame :flags)              #{:priority :end-stream :end-headers}
            (-> frame :payload s)  text))))
+
+(deftest priority-frame-test
+  (testing "encode and decode priority frame"
+    (let [buffer (get-buffer {:type :priority
+                              :stream 5
+                              :weight 10
+                              :stream-dependency 1337
+                              :exclusive true})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :priority
+           (-> frame :stream)             5
+           (-> frame :length)             0
+           (-> frame :weight)             10
+           (-> frame :stream-dependency)  1337
+           (-> frame :exclusive)          true
+           (-> frame :flags)              #{}))))

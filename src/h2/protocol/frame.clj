@@ -23,7 +23,7 @@
 
 (defn- encode-priority
   "Encode frame priority"
-  [{:keys [length payload flags weight stream-dependency exclusive]
+  [{:keys [type length payload flags weight stream-dependency exclusive]
     :as frame}
    & _]
   {:pre [frame]}
@@ -237,7 +237,17 @@
   [{:keys []
     :as frame}
    & [settings]]
-  (-> frame))
+  (-> frame
+      (assoc :length 0)
+      (assoc :payload [])
+      (encode-priority settings)))
+
+(defmethod decode-frame :priority
+  [{:keys []
+    :as frame}
+   & [settings]]
+  (-> frame
+      (decode-priority settings)))
 
 (defmethod encode-frame :default
   [{:keys [type]} & _]
@@ -268,13 +278,11 @@
       (validate-header settings)))
 
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :headers
+      frame {:type :priority
              :stream 2
-             :padding 66
              :weight 10
              :stream-dependency 1234
-             :exclusive true
-             :payload payload}
+             :exclusive true}
       buffer (get-buffer frame)]
   (-> buffer
       get-frame))
