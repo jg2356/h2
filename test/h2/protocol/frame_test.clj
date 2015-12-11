@@ -134,13 +134,12 @@
            (-> frame :payload s)  text))))
 
 (deftest goaway-frame-test
-  (testing "encode and decode ping frame"
-    (let [text "ping1234"
+  (testing "encode and decode goaway frame"
+    (let [text "This is a test to encode and decode a goaway frame"
           buffer (get-buffer {:type :goaway
                               :stream 1
                               :last-stream 10
                               :error :protocol-error
-                              :flags #{}
                               :payload (b text)})
           frame (get-frame buffer)]
       (are [x y] (= x y)
@@ -151,3 +150,32 @@
            (-> frame :length)             (count text)
            (-> frame :flags)              #{}
            (-> frame :payload s)  text))))
+
+(deftest window-update-frame-test
+  (testing "encode and decode window-update frame"
+    (let [buffer (get-buffer {:type :window-update
+                              :stream 3
+                              :increment 1337})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :window-update
+           (-> frame :stream)             3
+           (-> frame :increment)          1337
+           (-> frame :length)             0
+           (-> frame :flags)              #{}
+           (-> frame :payload s)          ""))))
+
+(deftest continuation-frame-test
+  (testing "encode and decode continuation frame"
+    (let [text "This is a test to encode and decode a continuation frame"
+          buffer (get-buffer {:type :continuation
+                              :stream 4
+                              :payload (b text)
+                              :flags #{:end-headers}})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :continuation
+           (-> frame :stream)             4
+           (-> frame :length)             (count text)
+           (-> frame :flags)              #{:end-headers}
+           (-> frame :payload s)          text))))

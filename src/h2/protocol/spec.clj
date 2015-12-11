@@ -86,8 +86,7 @@
    :ping             0x6
    :goaway           0x7
    :window-update    0x8
-   :continuation     0x9
-   :alt-svc          0xa})
+   :continuation     0x9})
 
 (def frame-code-to-type-map
   (map-invert frame-type-to-code-map))
@@ -108,8 +107,7 @@
    :ping             {:ack          0}
    :goaway           {}
    :window-update    {}
-   :continuation     {:end-headers  2}
-   :alt-svc          {}})
+   :continuation     {:end-headers  2}})
 
 (def frame-type-to-index-flag-map
   (into {} (for [[type flags] frame-type-to-flag-index-map]
