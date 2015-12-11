@@ -8,8 +8,7 @@
                  [org.clojure/math.numeric-tower "0.0.4"]
                  [clojurewerkz/buffy "1.0.2"]
                  [slingshot "0.12.2"]]
-; :repositories [["libs-release" "http://artifactory.rd.bms.com/artifactory/libs-release/"]
-;                ["libs-snapshot" "http://artifactory.rd.bms.com/artifactory/libs-snapshot/"]]
+  :plugins [[lein-auto "0.1.2"]]
   :main ^:skip-aot h2.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})

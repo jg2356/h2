@@ -67,7 +67,7 @@
     (-> frame
         (merge
           {:length length
-           :stream-dependencyy sdval
+           :stream-dependency sdval
            :exclusive (not= exval 0)
            :weight (inc weval)
            :payload payload}))))
@@ -138,7 +138,7 @@
       (raise compression-error "Window increment is too large: " increment))
     frame))
 
-(def ^{:private true} frame-template
+(def frame-template
   "Frame codec type to encode and decode http2 frames"
   (frame-type
    (frame-encoder [value]
@@ -197,7 +197,7 @@
     :as frame}
    & [settings]]
   (-> frame
-      (assoc frame :length (count payload))
+      (assoc :length (count payload))
       (cond-> (and padding (not (contains? flags :padded)))
               (encode-padding settings))))
 
@@ -232,6 +232,12 @@
           (and (spec/frame-priority? type)
                (contains? flags :priority))
           (decode-priority settings)))
+
+(defmethod encode-frame :priority
+  [{:keys []
+    :as frame}
+   & [settings]]
+  (-> frame))
 
 (defmethod encode-frame :default
   [{:keys [type]} & _]
