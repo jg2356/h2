@@ -38,6 +38,12 @@
   [type]
   (-> type frame-flag-index :padded nil? not))
 
+(defn frame-priority?
+  "Does the frame type allow priority?"
+  [type]
+  (or (-> type frame-flag-index :priority nil? not)
+      (= type :priority)))
+
 (defn frame-index-flag
   "Get the frame flag index to flag token lookup"
   [type]
