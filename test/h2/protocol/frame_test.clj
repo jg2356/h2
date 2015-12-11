@@ -16,7 +16,7 @@
            (-> frame :type)       :data
            (-> frame :stream)     2
            (-> frame :padding)    66
-           (-> frame :flags)      #{:compressed :end-stream} 
+           (-> frame :flags)      #{:compressed :end-stream}
            (-> frame :length)     (count text)
            (-> frame :payload s)  text))))
 
@@ -93,8 +93,27 @@
                                            :settings-max-concurrent-streams  12345
                                            :settings-initial-window-size     23456
                                            :settings-max-frame-size          16384
-                                           :settings-max-header-list-size    45678}  
+                                           :settings-max-header-list-size    45678}
            (-> frame :stream)             0
            (-> frame :length)             0
            (-> frame :payload s)          ""
            (-> frame :flags)              #{}))))
+
+(deftest push-promise-frame-test
+  (testing "encode and decode push-promise frame"
+    (let [text "This is a test to encode and decode a push-promise frame"
+          buffer (get-buffer {:type :push-promise
+                              :stream 9
+                              :flags #{:end-headers}
+                              :promise-stream 10
+                              :padding 71
+                              :payload (b text)})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :push-promise
+           (-> frame :stream)             9
+           (-> frame :padding)            71
+           (-> frame :length)             (count text)
+           (-> frame :promise-stream)     10
+           (-> frame :flags)              #{:end-headers}
+           (-> frame :payload s)  text))))

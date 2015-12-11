@@ -8,9 +8,9 @@
             [clojurewerkz.buffy.types.protocols :refer :all]
             [clojurewerkz.buffy.frames :refer :all]))
 
-(def ebit 0x80000000)
+(def exclusive-bit 0x80000000)
 
-(def rbit 0x7fffffff)
+(def reserved-bit 0x7fffffff)
 
 (defn- validate-priority
   "Validates frame priority"
@@ -29,8 +29,8 @@
   {:pre [frame]}
   (let [frame (validate-priority frame)
         flags (cond-> flags (not= type :priority) (conj :priority))
-        exval (if exclusive ebit 0)
-        sdval (bit-and stream-dependency rbit)
+        exval (if exclusive exclusive-bit 0)
+        sdval (bit-and stream-dependency reserved-bit)
         prval (bit-or exval sdval)
         weval (dec weight)
         prbuf (-> (spec :priority (int32-type)
@@ -41,7 +41,7 @@
                   (buffer))
         pbytes (read (bytes-type 5) prbuf 0)
         payload (concat pbytes payload)
-        length (+ length 5)]
+        length (count payload)]
     (-> frame
         (merge
          {:length length
@@ -60,8 +60,8 @@
                         :payload (bytes-type length))
                   (compose-buffer :orig-buffer payload))
         prval (get-field prbuf :priority)
-        sdval (bit-and prval rbit)
-        exval (bit-and prval ebit)
+        sdval (bit-and prval reserved-bit)
+        exval (bit-and prval exclusive-bit)
         weval (get-field prbuf :weight)
         payload (get-field prbuf :payload)]
     (-> frame
@@ -135,10 +135,10 @@
     :as frame}
    settings]
   {:pre [frame settings]}
-  (let [length (+ length padding)
-        padlen (byte (dec padding))
+  (let [padlen (byte (dec padding))
         flags (conj flags :padded)
-        payload (concat [padlen] payload (byte-array padlen))]
+        payload (concat [padlen] payload (byte-array padlen))
+        length (count payload)]
     (-> frame
         (validate-padding settings)
         (dissoc :padding)
@@ -332,7 +332,7 @@
 (defmethod encode-frame :settings
   [{:keys [stream settings]
     :as frame}
-   & [current-settings]]
+   & _ ]
   (when (not= stream 0)
     (raise protocol-error "Invalid Stream ID: " stream))
   (let [tpl (dynamic-buffer settings-template)
@@ -346,7 +346,7 @@
 (defmethod decode-frame :settings
   [{:keys [length payload stream]
     :as frame}
-   & [current-settings]]
+   & _ ]
   (when (not= stream 0)
     (raise protocol-error "Invalid Stream ID: " stream))
   (when (not= (mod length 6) 0)
@@ -357,6 +357,45 @@
         (assoc :length 0)
         (assoc :payload (byte-array 0))
         (assoc :settings (into {} settings)))))
+
+(defmethod encode-frame :push-promise
+  [{:keys [length payload padding flags promise-stream]
+    :as frame}
+   & [settings]]
+  {:pre [frame]}
+  (let [psval (bit-and promise-stream reserved-bit)
+        erbuf (-> (spec :promise-stream (int32-type))
+                  (compose-buffer)
+                  (set-field :promise-stream psval)
+                  (buffer))
+        pbytes (read (bytes-type 4) erbuf 0)
+        payload (concat pbytes payload)
+        length (count payload)]
+    (-> frame
+        (merge
+          {:length length
+           :payload (byte-array payload)})
+        (cond-> (and padding (not (contains? flags :padded)))
+                (encode-padding settings)))))
+
+(defmethod decode-frame :push-promise
+  [{:keys [type flags payload]
+    :as frame}
+   & [settings]]
+  (let [{:keys [type flags payload length]
+         :as frame} (cond-> frame (and (spec/frame-padding? type)
+                                       (contains? flags :padded))
+                            (decode-padding settings))
+        length (- length 4)
+        psbuf (-> (spec :promise-stream (int32-type)
+                        :payload (bytes-type length))
+                  (compose-buffer :orig-buffer payload))
+        psval (-> psbuf (get-field :promise-stream) (bit-and reserved-bit))
+        payload (get-field psbuf :payload)]
+    (merge frame
+           {:length length
+            :promise-stream psval
+            :payload payload})))
 
 (defmethod encode-frame :default
   [{:keys [type]} & _]
@@ -387,14 +426,14 @@
       (validate-header settings)))
 
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :settings
-             :stream 0
-             :settings {:settings-header-table-size       2048
-                        :settings-enable-push             1
-                        :settings-max-concurrent-streams  12345
-                        :settings-initial-window-size     23456
-                        :settings-max-frame-size          16384
-                        :settings-max-header-list-size    45678}}
-      buffer (get-buffer frame)]
-  (-> buffer
-      get-frame))
+      frame {:type :push-promise
+             :stream 1
+             :flags #{:end-headers}
+             :promise-stream 10
+             :padding 66
+             :payload payload}]
+  (-> frame
+      get-buffer
+      get-frame
+      :payload
+      s))
