@@ -1,7 +1,7 @@
 (ns h2.protocol.frame
   (:require [clojure.set]
             [h2.protocol.common :refer :all]
-            [h2.protocol.error :refer [raise compression-error protocol-error]]
+            [h2.protocol.error :refer [raise]]
             [h2.protocol.spec :as spec]
             [clojurewerkz.buffy.util :refer :all]
             [clojurewerkz.buffy.core :refer :all]
@@ -18,7 +18,7 @@
     :as frame}
    & _ ]
   (when-not (and weight stream-dependency (-> exclusive nil? not))
-    (raise compression-error "Must specify all of priority parameters for: "type))
+    (raise :compression-error "Must specify all of priority parameters for: "type))
   frame)
 
 (defn- encode-priority
@@ -79,12 +79,12 @@
    & _]
   {:pre [error]}
   (when-not (spec/error-code error)
-    (raise compression-error "Unknown error type: " error))
+    (raise :compression-error "Unknown error type: " error))
   frame)
 
 (defn- encode-error
   "Encode frame error"
-  [{:keys [error]
+  [{:keys [error payload]
     :as frame}
    & _]
   {:pre [frame]}
@@ -94,28 +94,31 @@
                   (set-field :error erval)
                   (buffer))
         ebytes (read (bytes-type 4) erbuf 0)
-        length 4]
+        payload (concat ebytes payload)]
     (-> frame
         (validate-error)
         (merge
-          {:length length
-           :payload ebytes}))))
+          {:length (count payload)
+           :payload (byte-array payload)}))))
 
 (defn- decode-error
   "Decode frame error"
-  [{:keys [payload]
+  [{:keys [payload length]
     :as frame}
    & _]
   {:pre [frame]}
-  (let [erbuf (-> (spec :error (int32-type))
+  (let [length (- length 4)
+        erbuf (-> (spec :error (int32-type)
+                        :payload (bytes-type length))
                   (compose-buffer :orig-buffer payload))
         erval (get-field erbuf :error)
-        error (or (spec/error-type erval) :internal-error)]
+        error (or (spec/error-type erval) :internal-error)
+        payload (get-field erbuf :payload)]
     (-> frame
         (merge
           {:error error
-           :length 0
-           :payload (byte-array 0)}))))
+           :length length
+           :payload payload}))))
 
 (defn- validate-padding
   "Validates frame padding"
@@ -124,9 +127,9 @@
    {:keys [settings-max-frame-size]}]
   {:pre [type length padding settings-max-frame-size]}
   (when-not (spec/frame-padding? type)
-    (raise compression-error "Invalid padding flag for: " type))
+    (raise :compression-error "Invalid padding flag for: " type))
   (when (or (<= padding 0) (> padding 256) (> (+ padding length) settings-max-frame-size))
-    (raise compression-error "Invalid padding: " padding))
+    (raise :compression-error "Invalid padding: " padding))
   frame)
 
 (defn- encode-padding
@@ -172,15 +175,15 @@
   (let [code (spec/frame-code type)
         flags (spec/frame-flag-index type)]
     (when-not code
-      (raise compression-error "Invalid frame type: " type))
+      (raise :compression-error "Invalid frame type: " type))
     (when (> length settings-max-frame-size)
-      (raise compression-error "Frame size is too large: " length))
+      (raise :compression-error "Frame size is too large: " length))
     (when (< length 0)
-      (raise compression-error "Frame size is invalid: " length))
+      (raise :compression-error "Frame size is invalid: " length))
     (when (> stream spec/max-stream-id)
-      (raise compression-error "Stream ID is too large: " stream))
+      (raise :compression-error "Stream ID is too large: " stream))
     (when (and (= type :window-update) (> increment spec/max-windowinc))
-      (raise compression-error "Window increment is too large: " increment))
+      (raise :compression-error "Window increment is too large: " increment))
     frame))
 
 (def settings-template
@@ -190,7 +193,7 @@
             (frame-encoder [value]
                            sk (short-type) (let [sk (-> value first spec/setting-code)]
                                              (when-not sk
-                                               (raise compression-error "Unknown settings type: " sk))
+                                               (raise :compression-error "Unknown settings type: " sk))
                                              sk)
                            sv (int32-type) (-> value last))
             (frame-decoder [buf offset]
@@ -217,7 +220,7 @@
                                                     flags (spec/frame-flag-index type)
                                                     position (f flags)]
                                                 (when-not position
-                                                  (raise compression-error "Invalid frame flag: " f " for frame type: " type))
+                                                  (raise :compression-error "Invalid frame flag: " f " for frame type: " type))
                                                 (bit-or c (bit-shift-left 1 position))))
                                             0x0 (:flags value))
                   stream (int32-type) (:stream value)
@@ -334,7 +337,7 @@
     :as frame}
    & _ ]
   (when (not= stream 0)
-    (raise protocol-error "Invalid Stream ID: " stream))
+    (raise :protocol-error "Invalid Stream ID: " stream))
   (let [tpl (dynamic-buffer settings-template)
         length (-> settings count (* 6))
         setbuf (compose tpl [settings])
@@ -348,9 +351,9 @@
     :as frame}
    & _ ]
   (when (not= stream 0)
-    (raise protocol-error "Invalid Stream ID: " stream))
+    (raise :protocol-error "Invalid Stream ID: " stream))
   (when (not= (mod length 6) 0)
-    (raise protocol-error "Invalid settings payload length: " length))
+    (raise :protocol-error "Invalid settings payload length: " length))
   (let [tpl (dynamic-buffer settings-template)
         [[settings]] (decompose tpl (wrapped-buffer payload))]
     (-> frame
@@ -359,7 +362,7 @@
         (assoc :settings (into {} settings)))))
 
 (defmethod encode-frame :push-promise
-  [{:keys [length payload padding flags promise-stream]
+  [{:keys [payload padding flags promise-stream]
     :as frame}
    & [settings]]
   {:pre [frame]}
@@ -397,13 +400,68 @@
             :promise-stream psval
             :payload payload})))
 
+(defmethod encode-frame :ping
+  [{:keys [payload stream]
+    :as frame}
+   & [settings]]
+  (let [length (count payload)]
+    (when (not= stream 0)
+      (raise :protocol-error "Invalid Stream ID: " stream))
+    (when (not= length 8)
+      (raise :protocol-error "Invalid ping payload size: " length))
+    (-> frame
+        (assoc :length length))))
+
+(defmethod decode-frame :ping
+  [{:keys [stream length]
+    :as frame}
+   & [settings]]
+  (when (not= stream 0)
+    (raise :protocol-error "Invalid Stream ID: " stream))
+  (when (not= length 8)
+    (raise :frame-size-error "Invalid ping payload size: " length))
+  frame)
+
+(defmethod encode-frame :goaway
+  [{:keys [last-stream]
+    :as frame}
+   & [settings]]
+  (let [lsval (bit-and last-stream reserved-bit)
+        lsbuf (-> (spec :last-stream (int32-type))
+                  (compose-buffer)
+                  (set-field :last-stream lsval)
+                  (buffer))
+        sbytes (read (bytes-type 4) lsbuf 0)
+        {:keys [payload] :as frame} (encode-error frame settings)
+        payload (concat sbytes payload)]
+    (-> frame
+        (merge
+          {:length (count payload)
+           :payload (byte-array payload)}))))
+
+(defmethod decode-frame :goaway
+  [{:keys [type flags length payload]
+    :as frame}
+   & [settings]]
+  (let [lsbuf (-> (spec :last-stream (int32-type)
+                        :payload (bytes-type (- length 4)))
+                  (compose-buffer :orig-buffer payload))
+        lsval (-> lsbuf (get-field :last-stream) (bit-and reserved-bit))
+        payload (get-field lsbuf :payload)]
+    (-> frame
+        (merge
+          {:last-stream lsval
+           :length (count payload)
+           :payload payload})
+        (decode-error settings))))
+
 (defmethod encode-frame :default
   [{:keys [type]} & _]
-  (raise compression-error "Unsupported frame type: " type))
+  (raise :compression-error "Unsupported frame type: " type))
 
 (defmethod decode-frame :default
   [{:keys [type]} & _]
-  (raise compression-error "Unsupported frame type: " type))
+  (raise :compression-error "Unsupported frame type: " type))
 
 (defn get-buffer
   "Gets a buffer from a frame"
@@ -426,14 +484,12 @@
       (validate-header settings)))
 
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :push-promise
+      frame {:type :goaway
              :stream 1
-             :flags #{:end-headers}
-             :promise-stream 10
-             :padding 66
+             :last-stream 10
+             :error :protocol-error
+             :flags #{}
              :payload payload}]
   (-> frame
       get-buffer
-      get-frame
-      :payload
-      s))
+      get-frame))

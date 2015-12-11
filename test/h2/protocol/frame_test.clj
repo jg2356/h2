@@ -117,3 +117,37 @@
            (-> frame :promise-stream)     10
            (-> frame :flags)              #{:end-headers}
            (-> frame :payload s)  text))))
+
+(deftest ping-frame-test
+  (testing "encode and decode ping frame"
+    (let [text "ping1234"
+          buffer (get-buffer {:type :ping
+                              :stream 0
+                              :flags #{:ack}
+                              :payload (b text)})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :ping
+           (-> frame :stream)             0
+           (-> frame :length)             (count text)
+           (-> frame :flags)              #{:ack}
+           (-> frame :payload s)  text))))
+
+(deftest goaway-frame-test
+  (testing "encode and decode ping frame"
+    (let [text "ping1234"
+          buffer (get-buffer {:type :goaway
+                              :stream 1
+                              :last-stream 10
+                              :error :protocol-error
+                              :flags #{}
+                              :payload (b text)})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :goaway
+           (-> frame :error)              :protocol-error
+           (-> frame :stream)             1
+           (-> frame :last-stream)        10
+           (-> frame :length)             (count text)
+           (-> frame :flags)              #{}
+           (-> frame :payload s)  text))))
