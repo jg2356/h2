@@ -72,6 +72,51 @@
            :weight (inc weval)
            :payload payload}))))
 
+(defn- validate-error
+  "Validates error codes"
+  [{:keys [error]
+    :as frame}
+   & _]
+  {:pre [error]}
+  (when-not (spec/error-code error)
+    (raise compression-error "Unknown error type: " error))
+  frame)
+
+(defn- encode-error
+  "Encode frame error"
+  [{:keys [error]
+    :as frame}
+   & _]
+  {:pre [frame]}
+  (let [erval (spec/error-code error)
+        erbuf (-> (spec :error (int32-type))
+                  (compose-buffer)
+                  (set-field :error erval)
+                  (buffer))
+        ebytes (read (bytes-type 4) erbuf 0)
+        length 4]
+    (-> frame
+        (validate-error)
+        (merge
+          {:length length
+           :payload ebytes}))))
+
+(defn- decode-error
+  "Decode frame error"
+  [{:keys [payload]
+    :as frame}
+   & _]
+  {:pre [frame]}
+  (let [erbuf (-> (spec :error (int32-type))
+                  (compose-buffer :orig-buffer payload))
+        erval (get-field erbuf :error)
+        error (or (spec/error-type erval) :internal-error)]
+    (-> frame
+        (merge
+          {:error error
+           :length 0
+           :payload (byte-array 0)}))))
+
 (defn- validate-padding
   "Validates frame padding"
   [{:keys [type length padding]
@@ -234,20 +279,32 @@
           (decode-priority settings)))
 
 (defmethod encode-frame :priority
-  [{:keys []
-    :as frame}
+  [frame
    & [settings]]
   (-> frame
       (assoc :length 0)
-      (assoc :payload [])
+      (assoc :payload (byte-array 0))
       (encode-priority settings)))
 
 (defmethod decode-frame :priority
-  [{:keys []
-    :as frame}
+  [frame
    & [settings]]
   (-> frame
       (decode-priority settings)))
+
+(defmethod encode-frame :rst-stream
+  [frame
+   & [settings]]
+  (-> frame
+      (assoc :length 0)
+      (assoc :payload (byte-array 0))
+      (encode-error settings)))
+
+(defmethod decode-frame :rst-stream
+  [frame
+   & [settings]]
+  (-> frame
+      (decode-error settings)))
 
 (defmethod encode-frame :default
   [{:keys [type]} & _]
@@ -278,11 +335,9 @@
       (validate-header settings)))
 
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :priority
+      frame {:type :rst-stream
              :stream 2
-             :weight 10
-             :stream-dependency 1234
-             :exclusive true}
+             :error :protocol-error}
       buffer (get-buffer frame)]
   (-> buffer
       get-frame))

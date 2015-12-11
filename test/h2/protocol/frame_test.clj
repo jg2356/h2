@@ -55,7 +55,22 @@
            (-> frame :type)               :priority
            (-> frame :stream)             5
            (-> frame :length)             0
+           (-> frame :payload s)          ""
            (-> frame :weight)             10
            (-> frame :stream-dependency)  1337
            (-> frame :exclusive)          true
+           (-> frame :flags)              #{}))))
+
+(deftest rst-stream-frame-test
+  (testing "encode and decode rst-stream frame"
+    (let [buffer (get-buffer {:type :rst-stream
+                              :stream 6
+                              :error :compression-error})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :rst-stream
+           (-> frame :stream)             6
+           (-> frame :error)              :compression-error
+           (-> frame :length)             0
+           (-> frame :payload s)          ""
            (-> frame :flags)              #{}))))
