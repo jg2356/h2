@@ -74,3 +74,27 @@
            (-> frame :length)             0
            (-> frame :payload s)          ""
            (-> frame :flags)              #{}))))
+
+(deftest settings-frame-test
+  (testing "encode and decode settings frame"
+    (let [buffer (get-buffer {:type :settings
+                              :stream 0
+                              :settings {:settings-header-table-size       2048
+                                         :settings-enable-push             1
+                                         :settings-max-concurrent-streams  12345
+                                         :settings-initial-window-size     23456
+                                         :settings-max-frame-size          16384
+                                         :settings-max-header-list-size    45678}})
+          frame (get-frame buffer)]
+      (are [x y] (= x y)
+           (-> frame :type)               :settings
+           (-> frame :settings)           {:settings-header-table-size       2048
+                                           :settings-enable-push             1
+                                           :settings-max-concurrent-streams  12345
+                                           :settings-initial-window-size     23456
+                                           :settings-max-frame-size          16384
+                                           :settings-max-header-list-size    45678}  
+           (-> frame :stream)             0
+           (-> frame :length)             0
+           (-> frame :payload s)          ""
+           (-> frame :flags)              #{}))))

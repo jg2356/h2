@@ -1,7 +1,7 @@
 (ns h2.protocol.frame
   (:require [clojure.set]
             [h2.protocol.common :refer :all]
-            [h2.protocol.error :refer [raise compression-error]]
+            [h2.protocol.error :refer [raise compression-error protocol-error]]
             [h2.protocol.spec :as spec]
             [clojurewerkz.buffy.util :refer :all]
             [clojurewerkz.buffy.core :refer :all]
@@ -183,6 +183,29 @@
       (raise compression-error "Window increment is too large: " increment))
     frame))
 
+(def settings-template
+  "Frame codec type to encode and decode settings payload in http2 frames"
+  (let [kvp-tpl
+          (frame-type
+            (frame-encoder [value]
+                           sk (short-type) (let [sk (-> value first spec/setting-code)]
+                                             (when-not sk
+                                               (raise compression-error "Unknown settings type: " sk))
+                                             sk)
+                           sv (int32-type) (-> value last))
+            (frame-decoder [buf offset]
+                           sk (short-type)
+                           sv (int32-type))
+            (fn [[sk sv]]
+              [(spec/setting-type sk) sv]))]
+    (frame-type
+      (frame-encoder [value]
+                     settings (repeated-frame kvp-tpl (count value)) value)
+      (frame-decoder [buf offset]
+                     settings (repeated-frame kvp-tpl (/ (-> buf (. capacity)) 6)))
+      (fn [settings]
+        settings))))
+
 (def frame-template
   "Frame codec type to encode and decode http2 frames"
   (frame-type
@@ -199,12 +222,12 @@
                                             0x0 (:flags value))
                   stream (int32-type) (:stream value)
                   payload (bytes-type (:length value)) (:payload value))
-   (frame-decoder [buffer offset]
+   (frame-decoder [buf offset]
                   length (medium-type)
                   type (byte-type)
                   flags (byte-type)
                   stream (int32-type)
-                  payload (bytes-type (read length buffer offset)))
+                  payload (bytes-type (read length buf offset)))
    (fn [[length type flags stream payload]]
      (let [tval (spec/frame-type type)
            fmap (spec/frame-index-flag tval)
@@ -306,6 +329,35 @@
   (-> frame
       (decode-error settings)))
 
+(defmethod encode-frame :settings
+  [{:keys [stream settings]
+    :as frame}
+   & [current-settings]]
+  (when (not= stream 0)
+    (raise protocol-error "Invalid Stream ID: " stream))
+  (let [tpl (dynamic-buffer settings-template)
+        length (-> settings count (* 6))
+        setbuf (compose tpl [settings])
+        payload (read (bytes-type length) setbuf 0)]
+    (-> frame
+        (assoc :length length)
+        (assoc :payload payload))))
+
+(defmethod decode-frame :settings
+  [{:keys [length payload stream]
+    :as frame}
+   & [current-settings]]
+  (when (not= stream 0)
+    (raise protocol-error "Invalid Stream ID: " stream))
+  (when (not= (mod length 6) 0)
+    (raise protocol-error "Invalid settings payload length: " length))
+  (let [tpl (dynamic-buffer settings-template)
+        [[settings]] (decompose tpl (wrapped-buffer payload))]
+    (-> frame
+        (assoc :length 0)
+        (assoc :payload (byte-array 0))
+        (assoc :settings (into {} settings)))))
+
 (defmethod encode-frame :default
   [{:keys [type]} & _]
   (raise compression-error "Unsupported frame type: " type))
@@ -335,9 +387,14 @@
       (validate-header settings)))
 
 (let [payload (b "This is an implementation of HTTP2")
-      frame {:type :rst-stream
-             :stream 2
-             :error :protocol-error}
+      frame {:type :settings
+             :stream 0
+             :settings {:settings-header-table-size       2048
+                        :settings-enable-push             1
+                        :settings-max-concurrent-streams  12345
+                        :settings-initial-window-size     23456
+                        :settings-max-frame-size          16384
+                        :settings-max-header-list-size    45678}}
       buffer (get-buffer frame)]
   (-> buffer
       get-frame))
