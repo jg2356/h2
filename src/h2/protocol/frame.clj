@@ -257,18 +257,22 @@
 (defmulti decode-frame :type)
 
 (defmethod encode-frame :data
-  [{:keys [payload padding flags]
+  [{:keys [type stream payload padding flags]
     :as frame}
    & [settings]]
+  (when (= stream 0)
+    (raise :protocol-error "Invalid Stream ID: " stream " for frame: " type))
   (-> frame
       (assoc :length (count payload))
       (cond-> (and padding (not (contains? flags :padded)))
               (encode-padding settings))))
 
 (defmethod decode-frame :data
-  [{:keys [type flags]
+  [{:keys [stream type flags]
     :as frame}
    & [settings]]
+  (when (= stream 0)
+    (raise :protocol-error "Invalid Stream ID: " stream " for frame: " type))
   (cond-> frame
           (and (spec/frame-padding? type)
                (contains? flags :padded))
