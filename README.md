@@ -21,19 +21,21 @@ For more examples see the collections of unit tests.
 
 ```clojure
 (ns my-namespace
-  (:require [h2.protocol.frame :refer :all]))
+  (:require [h2.protocol.frame :refer :all]
+            [h2.protocol.common :refer :all]))
 
 ; data frame example
 (let [f {:type :data
          :stream 2
          :padding 66
          :flags #{:compressed :end-stream}
-         :payload (b text)}]
+         :payload (b "this is a test")}]
   (-> f
       pack
       buffer
       frame
       unpack))
+; returns: {:length 14, :type :data, :flags #{:end-stream :compressed}, :stream 2, :padding 66, :payload ...}
 ```
 
 ## License
