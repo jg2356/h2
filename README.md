@@ -6,6 +6,8 @@ The HTTP2 (h2) protocol frames library can be used to pack and encode HTTP2 fram
 
 Simply add h2 as a dependency to your lein project:
 
+[![Build Status](https://travis-ci.org/jg2356/h2.svg)](https://travis-ci.org/jg2356/h2)
+
 ```clojure
 [h2 "0.1.0"]
 ```
