@@ -4,7 +4,9 @@
             [h2.protocol.error :refer [raise]]
             [h2.protocol.spec :as spec]
             [clojurewerkz.buffy.util :refer :all]
-            [clojurewerkz.buffy.core :refer :all]
+            [clojurewerkz.buffy.core :as buffy
+             :exclude [buffer]
+             :refer :all]
             [clojurewerkz.buffy.types.protocols :refer :all]
             [clojurewerkz.buffy.frames :refer :all]))
 
@@ -38,7 +40,7 @@
                   (compose-buffer)
                   (set-field :priority prval)
                   (set-field :weight weval)
-                  (buffer))
+                  (buffy/buffer))
         pbytes (read (bytes-type 5) prbuf 0)
         payload (concat pbytes payload)
         length (count payload)]
@@ -65,7 +67,7 @@
         exval (bit-and prval exclusive-bit)
         weval (get-field prbuf :weight)
         payload (get-field prbuf :payload)]
-    (.release (buffer prbuf))
+    (.release (buffy/buffer prbuf))
     (-> frame
         (merge
           {:length length
@@ -94,7 +96,7 @@
         erbuf (-> (spec :error (int32-type))
                   (compose-buffer)
                   (set-field :error erval)
-                  (buffer))
+                  (buffy/buffer))
         ebytes (read (bytes-type 4) erbuf 0)
         payload (concat ebytes payload)]
     (.release erbuf)
@@ -117,7 +119,7 @@
         erval (get-field erbuf :error)
         error (or (spec/error-type erval) :internal-error)
         payload (get-field erbuf :payload)]
-    (.release (buffer erbuf))
+    (.release (buffy/buffer erbuf))
     (-> frame
         (merge
           {:error error
@@ -247,21 +249,8 @@
          :type tval
          :flags fval
          :stream stream
-         :payload payload}))))
-
-(defn- buffer-to-frame
-  "Converts a buffer to a frame using the `frame-template"
-  [buffer]
-  (let [tpl (dynamic-buffer frame-template)
-        [frame] (decompose tpl buffer)]
-    frame))
-
-(defn- frame-to-buffer
-  "Converts a frame to a buffer using the `frame-template"
-  [frame]
-  (let [tpl (dynamic-buffer frame-template)
-        buffer (compose tpl [frame])]
-    buffer))
+         :payload payload
+         :packed true}))))
 
 (defmulti encode-frame :type)
 
@@ -377,7 +366,7 @@
         psbuf (-> (spec :promise-stream (int32-type))
                   (compose-buffer)
                   (set-field :promise-stream psval)
-                  (buffer))
+                  (buffy/buffer))
         pbytes (read (bytes-type 4) psbuf 0)
         payload (concat pbytes payload)
         length (count payload)]
@@ -403,7 +392,7 @@
                   (compose-buffer :orig-buffer payload))
         psval (-> psbuf (get-field :promise-stream) (bit-and reserved-bit))
         payload (get-field psbuf :payload)]
-    (.release (buffer psbuf))
+    (.release (buffy/buffer psbuf))
     (merge frame
            {:length length
             :promise-stream psval
@@ -439,7 +428,7 @@
         lsbuf (-> (spec :last-stream (int32-type))
                   (compose-buffer)
                   (set-field :last-stream lsval)
-                  (buffer))
+                  (buffy/buffer))
         sbytes (read (bytes-type 4) lsbuf 0)
         {:keys [payload] :as frame} (encode-error frame settings)
         payload (concat sbytes payload)]
@@ -458,7 +447,7 @@
                   (compose-buffer :orig-buffer payload))
         lsval (-> lsbuf (get-field :last-stream) (bit-and reserved-bit))
         payload (get-field lsbuf :payload)]
-    (.release (buffer lsbuf))
+    (.release (buffy/buffer lsbuf))
     (-> frame
         (merge
           {:last-stream lsval
@@ -474,7 +463,7 @@
         wibuf (-> (spec :increment (int32-type))
                   (compose-buffer)
                   (set-field :increment wival)
-                  (buffer))
+                  (buffy/buffer))
         payload (read (bytes-type 4) wibuf 0)]
     (.release wibuf)
     (-> frame
@@ -491,7 +480,7 @@
   (let [wibuf (-> (spec :increment (int32-type))
                   (compose-buffer :orig-buffer payload))
         wival (-> wibuf (get-field :increment) (bit-and reserved-bit))]
-    (.release (buffer wibuf))
+    (.release (buffy/buffer wibuf))
     (merge frame
            {:increment wival
             :length 0
@@ -521,31 +510,43 @@
   [{:keys [type]} & _]
   (raise :compression-error "Unsupported frame type: " type))
 
-(defn get-buffer
-  "Gets a buffer from a frame"
-  [{:keys [flags stream] :as frame
+(defn frame
+  "Converts a buffer to a packed frame"
+  [buffer]
+  {:post [(:packed %)]}
+  (let [tpl (dynamic-buffer frame-template)
+        [frame] (decompose tpl buffer)]
+    frame))
+
+(defn buffer
+  "Converts a packed frame to a buffer"
+  [{:keys [packed]
+    :as frame}]
+  {:pre [packed]}
+  (let [tpl (dynamic-buffer frame-template)
+        buffer (compose tpl [frame])]
+    buffer))
+
+(defn pack
+  "Packs a frame"
+  [{:keys [flags stream packed] :as frame
     :or {flags #{} stream 0}}
    & [{:keys [settings]
        :or {settings (spec/setting-init)}}]]
+  {:pre [(not packed)]}
   (-> (merge frame {:flags flags :stream stream})
       (encode-frame settings)
       (validate-header settings)
-      (frame-to-buffer)))
+      (select-keys [:length :type :flags :stream :payload])
+      (assoc :packed true)))
 
-(defn get-frame
-  "Gets a frame from a buffer"
-  [buffer
+(defn unpack
+  "Unpacks a frame"
+  [{:keys [packed]
+    :as frame}
    & [{:keys [settings]
        :or {settings (spec/setting-init)}}]]
-  (-> (buffer-to-frame buffer)
-      (decode-frame settings)
-      (validate-header settings)))
-
-(let [payload (b "This is an implementation of HTTP2")
-        frame {:type :continuation
-               :stream 1
-               :payload payload
-               :flags #{:end-headers}}
-        buffer (get-buffer frame)]
-    (. buffer release)
-    frame)
+  {:pre [packed]}
+  (-> (decode-frame frame settings)
+      (validate-header settings)
+      (dissoc :packed)))

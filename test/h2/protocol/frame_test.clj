@@ -3,6 +3,12 @@
             [h2.protocol.frame :refer :all]
             [h2.protocol.common :refer :all]))
 
+(def get-buffer
+  (comp buffer pack))
+
+(def get-frame
+  (comp unpack frame))
+
 (deftest data-frame-test
   (testing "encode and decode data frame"
     (let [text "This is a test to encode and decode a data frame"
