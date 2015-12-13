@@ -38,6 +38,40 @@ For more examples see the collections of unit tests.
 ; returns: {:length 14, :type :data, :flags #{:end-stream :compressed}, :stream 2, :padding 66, :payload ...}
 ```
 
+The following example starts up a server and client and sends/receives HTTP2 packets on both ends after receiving the connection preface on the server.
+
+```clojure
+(use 'h2.protocol.common 'h2.protocol.tcp)
+
+(def myserver
+  (server
+    :host "127.0.0.1"
+    :port 13370
+    :handler (fn [conn frame]
+               (println "server received frame: " frame " with payload: " (-> frame :payload s))
+               (transmit-frame conn {:type :data
+                                     :stream 10
+                                     :padding 50
+                                     :payload (b "Hello from server")}))))
+
+(def myclient
+  (client :host "127.0.0.1"
+          :port 13370
+          :handler (fn [frame]
+                     (println "client received frame: " frame " with payload: " (-> frame :payload s)))))
+
+(start-server myserver)
+(start-client myclient)
+
+(transmit-frame myclient {:type :data
+                          :stream 9
+                          :padding 65
+                          :payload (b "Hello from client")})
+;;;server received frame:  {:length 17, :type :data, :flags #{}, :stream 9, :payload #object[[B 0x52900a6 [B@52900a6], :padding 65} with payload:  Hello from client
+Instarepl:
+;;;client received frame:  {:length 17, :type :data, :flags #{}, :stream 10, :payload #object[[B 0x618edbfe [B@618edbfe], :padding 50} with payload:  Hello from server
+```
+
 ## License
 
 Copyright © 2015 Jose Gomez

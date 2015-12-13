@@ -1,6 +1,18 @@
 (ns h2.protocol.spec
-  (:require [clojure.math.numeric-tower :as math]
+  (:require [h2.protocol.common :refer :all]
+            [clojure.math.numeric-tower :as math]
             [clojure.set :refer [map-invert]]))
+
+(def h2-preface
+  "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+
+(def h2-preface-bytes
+  (b h2-preface))
+
+(def h2-preface-length
+  (count h2-preface-bytes))
+
+(def h2-header-length 9)
 
 (def max-stream-id
   (math/expt 2 31))

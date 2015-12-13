@@ -215,8 +215,8 @@
       (fn [settings]
         settings))))
 
-(def frame-template
-  "Frame codec type to encode and decode http2 frames"
+(def h2-header-type
+  "Frame header template type to encode and decode http2 frame headers"
   (frame-type
     (frame-encoder [value]
                    length (medium-type) (:length value)
@@ -229,15 +229,13 @@
                                                    (raise :compression-error "Invalid frame flag: " f " for frame type: " type))
                                                  (bit-or c (bit-shift-left 1 position))))
                                              0x0 (:flags value))
-                   stream (int32-type) (:stream value)
-                   payload (bytes-type (:length value)) (:payload value))
+                   stream (int32-type) (:stream value))
     (frame-decoder [buf offset]
                    length (medium-type)
                    type (byte-type)
                    flags (byte-type)
-                   stream (int32-type)
-                   payload (bytes-type (read length buf offset)))
-    (fn [[length type flags stream payload]]
+                   stream (int32-type))
+    (fn [[length type flags stream]]
       (let [tval (spec/frame-type type)
             fmap (spec/frame-index-flag tval)
             fbin (reverse (to-bit-map (byte-type) flags))
@@ -245,12 +243,24 @@
                       (map-indexed (fn [i v] (if v (get fmap i))))
                       (filter (comp not nil?))
                       (set))]
-        {:length length
-         :type tval
-         :flags fval
-         :stream stream
-         :payload payload
-         :packed true}))))
+        [length tval fval stream]))))
+
+(def h2-frame-type
+  "Frame content template type to encode and decode http2 frames"
+  (frame-type
+    (frame-encoder [value]
+                   header h2-header-type (select-keys value [:length :type :flags :stream])
+                   payload (bytes-type (:length value)) (:payload value))
+    (frame-decoder [buf offset]
+                   header h2-header-type
+                   payload (bytes-type (first (read header buf offset))))
+    (fn [[[length type flags stream] payload]]
+      {:length length
+       :type type
+       :flags flags
+       :stream stream
+       :payload payload
+       :packed true})))
 
 (defmulti encode-frame :type)
 
@@ -515,19 +525,33 @@
   (raise :compression-error "Unsupported frame type: " type))
 
 (defn frame
-  "Converts a buffer to a packed frame"
+  "Converts a buffer, or header and payload, to a packed frame"
+  ([buffer]
+   {:post [(:packed %)]}
+   (let [tpl (dynamic-buffer h2-frame-type)
+         [frame] (decompose tpl buffer)]
+     frame))
+  ([[length type flags stream] payload]
+   {:length length
+    :type type
+    :flags flags
+    :stream stream
+    :payload payload
+    :packed true}))
+
+(defn header
+  "Converts a 9-byte buffer to a frame header"
   [buffer]
-  {:post [(:packed %)]}
-  (let [tpl (dynamic-buffer frame-template)
-        [frame] (decompose tpl buffer)]
-    frame))
+  (let [tpl (dynamic-buffer h2-header-type)
+        [header] (decompose tpl buffer)]
+    header))
 
 (defn buffer
   "Converts a packed frame to a buffer"
   [{:keys [packed]
     :as frame}]
   {:pre [packed]}
-  (let [tpl (dynamic-buffer frame-template)
+  (let [tpl (dynamic-buffer h2-frame-type)
         buffer (compose tpl [frame])]
     buffer))
 
