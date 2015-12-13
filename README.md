@@ -57,7 +57,7 @@ The following example starts up a server and client and sends/receives HTTP2 pac
 (def myclient
   (client :host "127.0.0.1"
           :port 13370
-          :handler (fn [frame]
+          :handler (fn [conn frame]
                      (println "client received frame: " frame " with payload: " (-> frame :payload s)))))
 
 (start-server myserver)
