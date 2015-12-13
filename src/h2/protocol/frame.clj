@@ -192,7 +192,7 @@
       (raise :compression-error "Window increment is too large: " increment))
     frame))
 
-(def settings-template
+(def h2-settings-type
   "Frame codec type to encode and decode settings payload in http2 frames"
   (let [kvp-tpl
         (frame-type
@@ -345,7 +345,7 @@
    & _ ]
   (when (not= stream 0)
     (raise :protocol-error "Invalid Stream ID: " stream))
-  (let [tpl (dynamic-buffer settings-template)
+  (let [tpl (dynamic-buffer h2-settings-type)
         length (-> settings count (* 6))
         setbuf (compose tpl [settings])
         payload (read (bytes-type length) setbuf 0)]
@@ -362,7 +362,7 @@
     (raise :protocol-error "Invalid Stream ID: " stream))
   (when (not= (mod length 6) 0)
     (raise :protocol-error "Invalid settings payload length: " length))
-  (let [tpl (dynamic-buffer settings-template)
+  (let [tpl (dynamic-buffer h2-settings-type)
         setbuf (wrapped-buffer payload)
         [[settings]] (decompose tpl setbuf)]
     (.release setbuf)
