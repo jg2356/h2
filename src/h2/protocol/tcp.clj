@@ -18,7 +18,7 @@
   :host    - the host to bind to (defaults to 127.0.0.1)
   :port    - the port to bind to
   :backlog - the number of backlog connections
-  :handler - the handler for received frames `(fn [connection frame] ...)"
+  :handler - the handler for received frames `(fn [endpoint frame] ...)"
   [& {:keys [host port backlog handler]
       :or {host "127.0.0.1"
            backlog 100}
@@ -35,14 +35,15 @@
   "Create a new TCP client:
   :host    - the host to connect to
   :port    - the port to connect to
-  :handler - the handler for incoming frames `(fn [frame] ...)"
+  :handler - the handler for received frames `(fn [endpoint frame] ...)"
   [& {:keys [host port handler]
       :as options}]
   {:pre [host port handler]}
   (merge
     options
     {:socket (atom nil)
-     :settings (atom (spec/setting-init))}))
+     :local-settings (atom (spec/setting-init))
+     :remote-settings (atom (spec/setting-init))}))
 
 (defn transmit
   "Transmits data over an endpoint's TCP socket"
@@ -80,9 +81,9 @@
 
 (defn transmit-frame
   "Transmits an unpacked h2 frame over an endpoint's TCP socket"
-  [{:keys [settings] :as endpoint}
+  [{:keys [remote-settings] :as endpoint}
    frame]
-  (let [fbuf (buffer (pack frame settings))
+  (let [fbuf (buffer (pack frame @remote-settings))
         flen (.capacity fbuf)
         fbytes (read (bytes-type flen) fbuf 0)]
     (.release fbuf)
@@ -90,13 +91,13 @@
 
 (defn receive-frame
   "Receive an h2 frame over an endpoint's TCP socket if available"
-  [{:keys [settings] :as endpoint}]
+  [{:keys [local-settings] :as endpoint}]
   (let [hbytes (receive endpoint spec/h2-header-length)
         hbuf (wrapped-buffer hbytes)
         hval (header hbuf)
         pbytes (receive endpoint (first hval))]
     (.release hbuf)
-    (unpack (frame hval pbytes) settings)))
+    (unpack (frame hval pbytes) @local-settings)))
 
 (defn running?
   "True if the client/server socket is open."
@@ -119,14 +120,22 @@
   [{:keys [connections socket handler] :as server}]
   {:pre [@connections @socket handler]}
   (let [client-socket (.accept @socket)
+        local-settings (atom (spec/setting-init))
+        remote-settings (atom (spec/setting-init))
         connection {:socket (atom client-socket)
-                    :settings (atom (spec/setting-init))}]
+                    :local-settings local-settings
+                    :remote-settings remote-settings}]
     (swap! connections conj connection)
     (future
       (try
         (when (receive-preface connection)
+          (transmit-frame connection {:type :settings
+                                      :stream 0
+                                      :settings @local-settings})
           (while true
             (handler connection (receive-frame connection))))
+        (catch Exception e
+          (println e))
         (finally
           (close-connection server connection))))))
 
@@ -161,16 +170,21 @@
 
 (defn start-client
   "Start a TCP client connection to the target server"
-  [{:keys [socket host port handler]
+  [{:keys [socket host port handler local-settings]
     :as client}]
-  {:pre [(not @socket) host port handler]}
+  {:pre [(not @socket) host port handler local-settings]}
   (->> (new Socket host port)
        (reset! socket))
   (future
     (while (running? client)
       (try
         (transmit-preface client)
+        (transmit-frame client {:type :settings
+                                :stream 0
+                                :settings @local-settings})
         (while true
-          (handler (receive-frame client)))
+          (handler client (receive-frame client)))
+        (catch Exception e
+          (println e))
         (finally
           (stop-client client))))))

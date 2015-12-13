@@ -74,9 +74,19 @@
 (defn setting-init
   "Get the setting initial value"
   ([]
-   setting-type-to-initial-value-map)
+   (select-keys
+     setting-type-to-initial-value-map
+     [:settings-header-table-size
+      :settings-enable-push
+      :settings-initial-window-size
+      :settings-max-frame-size]))
   ([type]
    (get setting-type-to-initial-value-map type)))
+
+(defn setting-defaults
+  "Get the setting defaults"
+  ([]
+   setting-type-to-initial-value-map))
 
 (defn error-code
   "Get the error code"
