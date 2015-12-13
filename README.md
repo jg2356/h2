@@ -68,7 +68,6 @@ The following example starts up a server and client and sends/receives HTTP2 pac
                           :padding 65
                           :payload (b "Hello from client")})
 ;;;server received frame:  {:length 17, :type :data, :flags #{}, :stream 9, :payload #object[[B 0x52900a6 [B@52900a6], :padding 65} with payload:  Hello from client
-Instarepl:
 ;;;client received frame:  {:length 17, :type :data, :flags #{}, :stream 10, :payload #object[[B 0x618edbfe [B@618edbfe], :padding 50} with payload:  Hello from server
 ```
 
